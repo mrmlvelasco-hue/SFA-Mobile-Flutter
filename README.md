@@ -5,15 +5,26 @@ Flutter rewrite of the SFA sales-force-automation mobile app. The previous mobil
 backend contract, not a direct code port. It talks to the Python/FastAPI backend in the
 `SFA-API` repo's `/api/v1` routes.
 
-## Status (2026-11-17) -- Milestone 1
+## Status (2026-11-18) -- Milestone 2
 
-This is the **first milestone only**: project skeleton, theming, API client, and the full
-auth flow (login + logout), plus an app shell (drawer) listing every section from the
-original app as a placeholder ("Coming soon") screen. **No business screens are built
-yet** -- order management, inventory, payments, etc. are all still RN-only. See
-"Known gaps" below and the project's area notes for the planned build order.
+- **Milestone 1** (done): project skeleton, theming, API client, login/logout, app shell (drawer)
+  with every original section listed.
+- **Milestone 2** (done): **Route Call Schedule** -- the first screen after login. Lists today's
+  customers to visit (from `POST /api/v1/download-datav2`), with the Scheduled/Unscheduled filter,
+  outlet-name search, numbering in route order, pull-to-refresh, and the green **Done** state for
+  customers that already have a matching order (from `download-datav2/order-details`). The session
+  is now saved, so reopening the app keeps you signed in.
 
-Deliberately deferred from this milestone (will be added in later passes):
+To see data on this screen locally, run `python manage.py seed` in `SFA-API` **on the day you test**
+-- it creates today's demo route calls for `jdelacruz` (5 customers; `DEMO0002` shows as Done).
+
+Not ported yet from the RN Route Call Schedule:
+- the map of customer locations behind the list (needs a maps package + API key; deferred with GPS)
+- the "You are offline" banner (needs offline storage)
+- the orange "Call Ongoing" state (comes with the start-call flow)
+- tapping a customer opens a placeholder -- **Customer Master Data** is the next screen to port
+
+Deliberately deferred (later passes):
 - Offline-first local storage (the RN app used SQLite + AsyncStorage)
 - GPS / geofencing (login's `lat`/`lng` are currently hardcoded to `0.0`)
 - Maps, signature capture, native device checks (root/jailbreak detection, etc.)
@@ -25,10 +36,9 @@ Deliberately deferred from this milestone (will be added in later passes):
   `/reset-forgot-password` -- see the RN app's `src/services/authApi.js` for what the old
   app called). The "Forgot password?" link currently opens a placeholder screen saying so.
   These need to be added to `SFA-API` before the Flutter screens for them are worth building.
-- **No session refresh on resume**: if the app is reopened with a saved token, it goes
-  straight to the signed-in shell but `AuthState.user` is `null` until the next login,
-  because there's no `/me`-style endpoint to re-fetch the user. Add one on the backend, or
-  make the Flutter app re-send the user payload some other way, before relying on this.
+- **Session restore uses the saved login response**: reopening the app restores the user saved at
+  the last login (there's no `/me` endpoint to re-fetch it). If the server rejects the token
+  ("Unauthenticated."), the app returns to the login screen with "Your session has expired".
 - **`ip`/device identity fields**: `device_name` is just the OS name/version; `ip` is a
   stub `"0.0.0.0"`. The backend only logs these to the audit trail today, so this is safe,
   but tighten it if that ever changes.
@@ -79,10 +89,13 @@ Without `--dart-define` overrides it defaults to `http://localhost:8000` / `1.0.
     flutter test test/auth_state_test.dart   # just one file, while iterating
     flutter analyze              # static analysis -- run this after every change too
 
-Current tests (`test/`):
+Current tests (`test/`) -- none need the backend running; they use fakes from `test/helpers.dart`:
 - `login_screen_test.dart` -- validation errors on empty submit; both fields render
-- `auth_state_test.dart` -- login success/failure flow against a fake repository (no
-  network calls, so this doesn't need the backend running)
+- `auth_state_test.dart` -- login success/failure, session save/restore, logout
+- `route_call_state_test.dart` -- scheduled/unscheduled rules, sorting, search, one row per
+  customer, the Done rule, backend errors, expired token
+- `route_call_schedule_screen_test.dart` -- the screen loads, lists, filters, searches, shows
+  Done, and opens a customer
 
 There is no integration/E2E test yet that actually talks to a running `SFA-API` instance.
 Once more screens exist, consider adding one with `integration_test` against a local
@@ -99,6 +112,8 @@ good model for the seed data).
       features/
         auth/          auth_repository.dart (calls /api/v1/login, /logout),
                        auth_state.dart (ChangeNotifier session state), login_screen.dart, sfa_user.dart
+        route_calls/   route_call.dart (model), route_call_repository.dart (download-datav2 calls),
+                       route_call_state.dart (filter/search/done logic), route_call_schedule_screen.dart
         home/          drawer_shell.dart (post-login app shell + drawer), menu_items.dart (ported menu list)
         placeholder/   coming_soon_screen.dart (stand-in for unbuilt sections)
       main.dart        MaterialApp + AuthGate (Login vs DrawerShell by auth status)
@@ -107,13 +122,14 @@ good model for the seed data).
 ## Next milestones (planned, not started)
 
 In the order the original app's drawer lists them, once a milestone is picked up:
-1. Route Call Schedule (the home/landing screen after login)
-2. Order Management (add order, misc discounts, digital signature, order summary) --
+1. ~~Route Call Schedule~~ (done, milestone 2)
+2. Customer Master Data (opened by tapping a customer) + start call
+3. Order Management (add order, misc discounts, digital signature, order summary) --
    the largest module
-3. Order Status
-4. Payment Collection
-5. Outlet Inventory / DC Inventory / Floor Stock Inventory
-6. Sales Return, Subsidiary Ledger, Sales Inquiries, Route Productivity,
+4. Order Status
+5. Payment Collection
+6. Outlet Inventory / DC Inventory / Floor Stock Inventory
+7. Sales Return, Subsidiary Ledger, Sales Inquiries, Route Productivity,
    Non-Sales Activities, Empties Pullout, Customer Master Data, Feedback
 
 Each milestone should land as its own PR/commit with its own tests, same cadence as the

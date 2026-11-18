@@ -6,6 +6,7 @@ import 'features/auth/auth_state.dart';
 import 'features/auth/login_screen.dart';
 import 'features/home/drawer_shell.dart';
 import 'features/placeholder/coming_soon_screen.dart';
+import 'features/route_calls/route_call_state.dart';
 
 void main() {
   runApp(const SfaApp());
@@ -47,7 +48,11 @@ class AuthGate extends StatelessWidget {
       case AuthStatus.unknown:
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
       case AuthStatus.signedIn:
-        return const DrawerShell();
+        // Created per signed-in session, so logging out and in as someone else starts clean.
+        return ChangeNotifierProvider(
+          create: (ctx) => RouteCallState(auth: ctx.read<AuthState>()),
+          child: const DrawerShell(),
+        );
       case AuthStatus.signedOut:
       case AuthStatus.signingIn:
         return const LoginScreen();

@@ -18,6 +18,18 @@ class _LoginScreenState extends State<LoginScreen> {
   bool _obscurePassword = true;
 
   @override
+  void initState() {
+    super.initState();
+    // Arriving here because the session was dropped (e.g. "Your session has expired"): say why.
+    final message = context.read<AuthState>().errorMessage;
+    if (message != null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) _showError(message);
+      });
+    }
+  }
+
+  @override
   void dispose() {
     _usernameController.dispose();
     _passwordController.dispose();
@@ -30,19 +42,23 @@ class _LoginScreenState extends State<LoginScreen> {
     await auth.login(_usernameController.text.trim(), _passwordController.text);
     if (!mounted) return;
     if (auth.status != AuthStatus.signedIn && auth.errorMessage != null) {
-      ScaffoldMessenger.of(context)
-        ..clearSnackBars()
-        ..showSnackBar(
-          SnackBar(
-            content: Text(auth.errorMessage!),
-            backgroundColor: AppColors.red2,
-            behavior: SnackBarBehavior.floating,
-            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-            duration: const Duration(seconds: 5),
-          ),
-        );
+      _showError(auth.errorMessage!);
     }
+  }
+
+  void _showError(String message) {
+    ScaffoldMessenger.of(context)
+      ..clearSnackBars()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: AppColors.red2,
+          behavior: SnackBarBehavior.floating,
+          margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          duration: const Duration(seconds: 5),
+        ),
+      );
   }
 
   @override

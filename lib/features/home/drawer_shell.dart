@@ -4,6 +4,7 @@ import 'package:provider/provider.dart';
 import '../../core/app_colors.dart';
 import '../auth/auth_state.dart';
 import '../placeholder/coming_soon_screen.dart';
+import '../route_calls/route_call_schedule_screen.dart';
 import 'menu_items.dart';
 
 /// App shell shown once signed in: an AppBar + Drawer, with the current
@@ -76,10 +77,20 @@ class _DrawerShellState extends State<DrawerShell> {
           ),
         ),
       ),
-      body: ComingSoonScreen(
-        title: _current.label,
-        note: 'This section will be ported from the React Native app in a later milestone.',
-      ),
+      body: _screenFor(_current),
     );
+  }
+
+  Widget _screenFor(MenuItem item) {
+    switch (item.route) {
+      case '/route-call-schedule':
+        return const RouteCallScheduleScreen();
+      default:
+        return ComingSoonScreen(
+          title: item.label,
+          embedded: true,
+          note: 'This section will be ported from the React Native app in a later milestone.',
+        );
+    }
   }
 }
