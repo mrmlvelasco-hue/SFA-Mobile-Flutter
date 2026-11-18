@@ -30,9 +30,18 @@ class _LoginScreenState extends State<LoginScreen> {
     await auth.login(_usernameController.text.trim(), _passwordController.text);
     if (!mounted) return;
     if (auth.status != AuthStatus.signedIn && auth.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(auth.errorMessage!), backgroundColor: AppColors.red2),
-      );
+      ScaffoldMessenger.of(context)
+        ..clearSnackBars()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(auth.errorMessage!),
+            backgroundColor: AppColors.red2,
+            behavior: SnackBarBehavior.floating,
+            margin: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            duration: const Duration(seconds: 5),
+          ),
+        );
     }
   }
 
