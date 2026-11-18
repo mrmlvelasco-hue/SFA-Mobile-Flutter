@@ -13,9 +13,13 @@ class ApiClient {
       connectTimeout: const Duration(seconds: 15),
       receiveTimeout: const Duration(seconds: 20),
       headers: {'Accept': 'application/json'},
-      // The backend always returns a body (even on 4xx/5xx) that callers
-      // need to read, so don't let Dio throw before we get to inspect it.
-      validateStatus: (status) => status != null && status < 500,
+      // The backend always returns a JSON body (even on 401/422/500) that callers need to
+      // read -- so accept every HTTP response as "valid" and let ApiEnvelope.fromResponse
+      // parse it. Only genuine transport failures (connection refused, timeout, DNS) should
+      // still throw DioException. (Previously this was `status < 500`, which meant a 500
+      // response's real error message -- the whole reason the backend returns a body on
+      // failure -- was discarded in favor of Dio's generic "status code of 500" boilerplate.)
+      validateStatus: (status) => true,
     ));
     _dio.interceptors.add(InterceptorsWrapper(
       onRequest: (options, handler) async {

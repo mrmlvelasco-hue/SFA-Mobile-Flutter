@@ -39,6 +39,13 @@ class AuthRepository {
   }
 
   ApiEnvelope _networkError(DioException e) {
+    // With validateStatus accepting every HTTP response, this should now only fire for
+    // genuine transport failures -- but if Dio still attached a response (e.g. a body that
+    // failed to parse as JSON), prefer whatever message is in it over Dio's own wording.
+    final data = e.response?.data;
+    if (data is Map<String, dynamic> && data['message'] != null) {
+      return ApiEnvelope.fromResponse(e.response!);
+    }
     return ApiEnvelope(
       code: 0,
       message: e.type == DioExceptionType.connectionError || e.type == DioExceptionType.connectionTimeout
