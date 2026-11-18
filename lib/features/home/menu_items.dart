@@ -10,6 +10,7 @@ class MenuItem {
 }
 
 const List<MenuItem> drawerMenuItems = [
+  MenuItem(label: 'Dashboard', route: '/dashboard', ported: true),
   MenuItem(label: 'Route Call Schedule', route: '/route-call-schedule', ported: true),
   MenuItem(label: 'Order Management', route: '/order-management'),
   MenuItem(label: 'Order Status', route: '/order-status'),

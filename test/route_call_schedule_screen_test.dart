@@ -1,20 +1,15 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:provider/provider.dart';
-import 'package:sfa_mobile/features/auth/auth_state.dart';
 import 'package:sfa_mobile/features/route_calls/route_call_schedule_screen.dart';
 import 'package:sfa_mobile/features/route_calls/route_call_state.dart';
 
 import 'helpers.dart';
 
 Future<RouteCallState> _pumpScreen(WidgetTester tester, {List<Map<String, dynamic>> orders = const []}) async {
-  final auth = signedInAuth();
-  final state = RouteCallState(auth: auth, repository: FakeRouteCallRepository(orders: orders));
-  await tester.pumpWidget(MultiProvider(
-    providers: [
-      ChangeNotifierProvider<AuthState>.value(value: auth),
-      ChangeNotifierProvider<RouteCallState>.value(value: state),
-    ],
+  final state = RouteCallState.fromDownload(downloadDataWith(orders: orders));
+  await tester.pumpWidget(ChangeNotifierProvider<RouteCallState>.value(
+    value: state,
     child: const MaterialApp(home: Scaffold(body: RouteCallScheduleScreen())),
   ));
   await tester.pumpAndSettle();
@@ -22,7 +17,7 @@ Future<RouteCallState> _pumpScreen(WidgetTester tester, {List<Map<String, dynami
 }
 
 void main() {
-  testWidgets('loads on open and lists scheduled customers, numbered in route order', (tester) async {
+  testWidgets('lists scheduled customers from the downloaded data, numbered in route order', (tester) async {
     await _pumpScreen(tester);
 
     expect(find.text('Aling Nena Sari-Sari Store'), findsOneWidget);

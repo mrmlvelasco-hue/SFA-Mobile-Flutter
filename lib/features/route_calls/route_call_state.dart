@@ -1,37 +1,35 @@
 import 'package:flutter/foundation.dart';
 
-import '../../core/api_client.dart';
-import '../auth/auth_state.dart';
 import 'route_call.dart';
-import 'route_call_repository.dart';
 
 enum RouteCallFilter { scheduled, unscheduled }
 
-enum LoadStatus { idle, loading, loaded, error }
-
-/// Today's route calls and their done/ongoing state -- the Flutter equivalent of the RN app's
-/// `offlineData` slice (as far as the Route Call Schedule uses it) plus the screen's own
-/// filtering logic (src/screens/RouteCallScheduleScreen.js).
+/// Today's route calls and their done/ongoing state, read from the downloaded master data (works
+/// offline) -- the RN app's `offlineData.data.route_calls` / `order_details` plus the Route Call
+/// Schedule screen's own filtering logic (src/screens/RouteCallScheduleScreen.js).
 class RouteCallState extends ChangeNotifier {
-  RouteCallState({required AuthState auth, RouteCallRepository? repository})
-      : _auth = auth,
-        _repository = repository ?? RouteCallRepository();
+  RouteCallState({required List<RouteCall> calls, List<OrderDetail> orders = const []})
+      : calls = List.unmodifiable(calls),
+        _doneFromOrders = doneCustomers(calls, orders);
 
-  final AuthState _auth;
-  final RouteCallRepository _repository;
-
-  LoadStatus status = LoadStatus.idle;
-  String? errorMessage;
+  /// From MasterDataState.data (the combined download).
+  factory RouteCallState.fromDownload(Map<String, dynamic> data) {
+    final routeCalls = data['route_calls'];
+    final list = routeCalls is Map ? routeCalls['list'] : null;
+    final orders = data['order_details'];
+    return RouteCallState(
+      calls: list is List ? list.whereType<Map>().map((m) => RouteCall.fromJson(Map<String, dynamic>.from(m))).toList() : const [],
+      orders: orders is List
+          ? orders.whereType<Map>().map((m) => OrderDetail.fromJson(Map<String, dynamic>.from(m))).toList()
+          : const [],
+    );
+  }
 
   /// Every route call for today, in backend order (sfa_routecalls.id).
-  List<RouteCall> calls = const [];
+  final List<RouteCall> calls;
 
-  /// The whole download-datav2 `data` object, kept for later screens (constants, feedback
-  /// reasons, non-sales activities, order summary...).
-  Map<String, dynamic> downloadData = const {};
-
-  /// Customers whose call is done because an order matches it (see [_doneFromOrders]).
-  Set<String> _doneFromOrders = const {};
+  /// Customers whose call is done because an order matches it (see [doneCustomers]).
+  final Set<String> _doneFromOrders;
 
   /// Customers marked done/ongoing during this session. Nothing sets these yet -- they're filled
   /// in by the start-call / end-call / feedback flows in later milestones (the RN app's
@@ -41,52 +39,6 @@ class RouteCallState extends ChangeNotifier {
 
   RouteCallFilter filter = RouteCallFilter.scheduled;
   String search = '';
-
-  Future<void> load() async {
-    final user = _auth.user;
-    if (user == null) return;
-    status = LoadStatus.loading;
-    errorMessage = null;
-    notifyListeners();
-
-    final summary = await _repository.downloadData(employeeId: user.employeeId, salesOrg: _auth.salesOrg);
-    if (await _handleFailure(summary)) return;
-    final data = summary.data is Map<String, dynamic> ? summary.data as Map<String, dynamic> : <String, dynamic>{};
-    final routeCalls = data['route_calls'];
-    final list = routeCalls is Map ? routeCalls['list'] : null;
-    final loaded = list is List
-        ? list.whereType<Map<String, dynamic>>().map(RouteCall.fromJson).toList()
-        : <RouteCall>[];
-
-    var orders = <OrderDetail>[];
-    final customerNumbers = loaded.map((c) => c.customerNumber).toSet().toList();
-    if (customerNumbers.isNotEmpty) {
-      final details = await _repository.orderDetails(customerNumbers);
-      if (await _handleFailure(details)) return;
-      if (details.data is List) {
-        orders = (details.data as List).whereType<Map<String, dynamic>>().map(OrderDetail.fromJson).toList();
-      }
-    }
-
-    calls = loaded;
-    downloadData = data;
-    _doneFromOrders = doneCustomers(loaded, orders);
-    status = LoadStatus.loaded;
-    notifyListeners();
-  }
-
-  /// Returns true (and updates state) when [result] is a failure the caller should stop on.
-  Future<bool> _handleFailure(ApiEnvelope result) async {
-    if (result.isSuccess) return false;
-    if (result.isUnauthenticated) {
-      await _auth.signOutLocally(message: 'Your session has expired. Please log in again.');
-      return true;
-    }
-    status = LoadStatus.error;
-    errorMessage = result.message.isNotEmpty ? result.message : 'Could not load the route calls.';
-    notifyListeners();
-    return true;
-  }
 
   /// A call is done when an order matches its customer, control number, item number
   /// (= the order's sequence_number) and call date -- the RN app's checkIfDone().

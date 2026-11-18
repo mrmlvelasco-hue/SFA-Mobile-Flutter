@@ -1,6 +1,4 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:sfa_mobile/core/api_client.dart';
-import 'package:sfa_mobile/features/auth/auth_state.dart';
 import 'package:sfa_mobile/features/route_calls/route_call.dart';
 import 'package:sfa_mobile/features/route_calls/route_call_state.dart';
 
@@ -25,103 +23,71 @@ void main() {
     });
   });
 
-  test('load() fetches today\'s calls, then order details for those customers', () async {
-    final repo = FakeRouteCallRepository();
-    final state = RouteCallState(auth: signedInAuth(), repository: repo);
+  test('fromDownload() reads route_calls.list and order_details from the downloaded data', () {
+    final state = RouteCallState.fromDownload(downloadDataWith(orders: [_order('DEMO0002', '000002')]));
 
-    await state.load();
-
-    expect(state.status, LoadStatus.loaded);
     expect(state.calls, hasLength(5));
-    expect(repo.lastOrderCustomers, containsAll(['DEMO0001', 'DEMO0005']));
-    expect(state.downloadData['constants'], {'app_version': '1.0.0'});
+    expect(state.isDone('DEMO0002'), isTrue);
   });
 
-  test('Scheduled (the default) shows scheduled calls sorted by item number', () async {
-    final state = RouteCallState(auth: signedInAuth(), repository: FakeRouteCallRepository());
-    await state.load();
+  test('fromDownload() copes with missing data', () {
+    final state = RouteCallState.fromDownload(const {});
+    expect(state.calls, isEmpty);
+    expect(state.visible, isEmpty);
+  });
+
+  test('Scheduled (the default) shows scheduled calls sorted by item number', () {
+    final state = RouteCallState.fromDownload(downloadDataWith());
 
     expect(state.filter, RouteCallFilter.scheduled);
     expect(_numbers(state.visible), ['DEMO0001', 'DEMO0002', 'DEMO0003', 'DEMO0004']);
   });
 
-  test('Unscheduled shows only item number 0 calls', () async {
-    final state = RouteCallState(auth: signedInAuth(), repository: FakeRouteCallRepository());
-    await state.load();
+  test('Unscheduled shows only item number 0 calls', () {
+    final state = RouteCallState.fromDownload(downloadDataWith());
 
     state.setFilter(RouteCallFilter.unscheduled);
 
     expect(_numbers(state.visible), ['DEMO0005']);
   });
 
-  test('search filters by outlet name, case-insensitively', () async {
-    final state = RouteCallState(auth: signedInAuth(), repository: FakeRouteCallRepository());
-    await state.load();
+  test('search filters by outlet name, case-insensitively', () {
+    final state = RouteCallState.fromDownload(downloadDataWith());
 
     state.setSearch('  mini MART ');
 
     expect(_numbers(state.visible), ['DEMO0002']);
   });
 
-  test('a customer with several calls today is listed once (first call wins)', () async {
-    final repo = FakeRouteCallRepository(calls: [
+  test('a customer with several calls today is listed once (first call wins)', () {
+    final state = RouteCallState.fromDownload(downloadDataWith(calls: [
       routeCallJson('C1', 'Store One', '000002', control: 'A'),
       routeCallJson('C1', 'Store One', '000005', control: 'B'),
       routeCallJson('C2', 'Store Two', '000001'),
-    ]);
-    final state = RouteCallState(auth: signedInAuth(), repository: repo);
-    await state.load();
+    ]));
 
     expect(_numbers(state.visible), ['C2', 'C1']);
     expect(state.visible.last.controlNumber, 'A-C1');
   });
 
-  test('a call is done only when an order matches customer, control number, item number and date', () async {
-    final order = {
-      'customer_number': 'DEMO0002',
-      'control_number': 'CN-DEMO0002',
-      'sequence_number': '000002',
-      'call_date': '2026-11-18 00:00:00.000',
-    };
-    final state = RouteCallState(
-      auth: signedInAuth(),
-      repository: FakeRouteCallRepository(orders: [
-        order,
-        {...order, 'customer_number': 'DEMO0001', 'control_number': 'CN-DEMO0001', 'sequence_number': '000009'},
-        {...order, 'customer_number': 'DEMO0003', 'control_number': 'CN-DEMO0003', 'sequence_number': '000003', 'call_date': '2026-11-17 00:00:00.000'},
-        {...order, 'customer_number': 'DEMO0004', 'control_number': 'OTHER', 'sequence_number': '000004'},
-      ]),
-    );
-    await state.load();
+  test('a call is done only when an order matches customer, control number, item number and date', () {
+    final state = RouteCallState.fromDownload(downloadDataWith(orders: [
+      _order('DEMO0002', '000002'),
+      _order('DEMO0001', '000009'),
+      _order('DEMO0003', '000003', date: '2026-11-17 00:00:00.000'),
+      _order('DEMO0004', '000004', control: 'OTHER'),
+    ]));
 
     expect(state.isDone('DEMO0002'), isTrue);
     expect(state.isDone('DEMO0001'), isFalse, reason: 'different item number');
     expect(state.isDone('DEMO0003'), isFalse, reason: 'order from another day');
     expect(state.isDone('DEMO0004'), isFalse, reason: 'different control number');
   });
-
-  test('a backend error is shown, not thrown', () async {
-    final state = RouteCallState(
-      auth: signedInAuth(),
-      repository: FakeRouteCallRepository(summaryResponse: ApiEnvelope(code: 500, message: 'Attempt to read property "id" on null')),
-    );
-
-    await state.load();
-
-    expect(state.status, LoadStatus.error);
-    expect(state.errorMessage, 'Attempt to read property "id" on null');
-  });
-
-  test('an expired/rejected token signs the user out with a message', () async {
-    final auth = signedInAuth();
-    final state = RouteCallState(
-      auth: auth,
-      repository: FakeRouteCallRepository(summaryResponse: ApiEnvelope(code: 401, message: 'Unauthenticated.')),
-    );
-
-    await state.load();
-
-    expect(auth.status, AuthStatus.signedOut);
-    expect(auth.errorMessage, contains('session has expired'));
-  });
 }
+
+Map<String, dynamic> _order(String customer, String sequence, {String? control, String date = '2026-11-18 00:00:00.000'}) => {
+      'customer_number': customer,
+      'control_number': control ?? 'CN-$customer',
+      'sequence_number': sequence,
+      'call_date': date,
+    };

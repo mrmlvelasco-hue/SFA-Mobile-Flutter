@@ -3,6 +3,7 @@ import 'package:provider/provider.dart';
 
 import '../../core/app_colors.dart';
 import '../auth/auth_state.dart';
+import '../dashboard/dashboard_screen.dart';
 import '../placeholder/coming_soon_screen.dart';
 import '../route_calls/route_call_schedule_screen.dart';
 import 'menu_items.dart';
@@ -83,6 +84,8 @@ class _DrawerShellState extends State<DrawerShell> {
 
   Widget _screenFor(MenuItem item) {
     switch (item.route) {
+      case '/dashboard':
+        return const DashboardScreen();
       case '/route-call-schedule':
         return const RouteCallScheduleScreen();
       default:

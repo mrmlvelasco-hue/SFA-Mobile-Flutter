@@ -8,10 +8,13 @@ import 'route_call_state.dart';
 
 /// Today's customers to visit -- the RN app's RouteCallScheduleScreen.js.
 ///
+/// Reads the downloaded master data, so it works offline (no refresh: the data is downloaded once
+/// after login, as in the RN app).
+///
 /// Not ported yet: the map of customer locations behind the list (needs a maps package + API
-/// key, deferred with GPS), the "You are offline" banner (needs offline storage), and the
-/// ongoing-call state (comes with the start-call flow). Tapping a customer opens Customer Master
-/// Data, which is the next screen to port.
+/// key, deferred with GPS), the "You are offline" banner, and the ongoing-call state (comes with
+/// the start-call flow). Tapping a customer opens Customer Master Data, which is the next screen
+/// to port.
 class RouteCallScheduleScreen extends StatefulWidget {
   const RouteCallScheduleScreen({super.key});
 
@@ -25,12 +28,7 @@ class _RouteCallScheduleScreenState extends State<RouteCallScheduleScreen> {
   @override
   void initState() {
     super.initState();
-    final state = context.read<RouteCallState>();
-    _searchController.text = state.search;
-    if (state.status == LoadStatus.idle) {
-      // After the first frame, so notifyListeners() doesn't fire during this build.
-      WidgetsBinding.instance.addPostFrameCallback((_) => state.load());
-    }
+    _searchController.text = context.read<RouteCallState>().search;
   }
 
   @override
@@ -93,47 +91,30 @@ class _RouteCallScheduleScreenState extends State<RouteCallScheduleScreen> {
   }
 
   Widget _body(RouteCallState state) {
-    if (state.status == LoadStatus.idle || (state.status == LoadStatus.loading && state.calls.isEmpty)) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (state.status == LoadStatus.error && state.calls.isEmpty) {
-      return _Message(
-        text: state.errorMessage ?? 'Could not load the route calls.',
-        action: TextButton(onPressed: state.load, child: const Text('Retry')),
-      );
-    }
-
     final items = state.visible;
-    return RefreshIndicator(
-      onRefresh: state.load,
-      child: items.isEmpty
-          // Scrollable even when empty, so pull-to-refresh still works.
-          ? ListView(
-              physics: const AlwaysScrollableScrollPhysics(),
-              children: const [SizedBox(height: 160), Center(child: Text('No Data', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)))],
-            )
-          : ListView.builder(
-              physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
-              itemCount: items.length + 1,
-              itemBuilder: (context, index) {
-                if (index == items.length) {
-                  return Padding(
-                    padding: const EdgeInsets.only(top: 12),
-                    child: Text('Displaying ${items.length} Customer',
-                        textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
-                  );
-                }
-                final call = items[index];
-                return _RouteCallTile(
-                  number: index + 1,
-                  call: call,
-                  done: state.isDone(call.customerNumber),
-                  ongoing: state.isOngoing(call.customerNumber),
-                  onTap: () => _openCustomer(call),
-                );
-              },
-            ),
+    if (items.isEmpty) {
+      return const Center(child: Text('No Data', style: TextStyle(fontSize: 24, fontWeight: FontWeight.w700)));
+    }
+    return ListView.builder(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 16),
+      itemCount: items.length + 1,
+      itemBuilder: (context, index) {
+        if (index == items.length) {
+          return Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Text('Displaying ${items.length} Customer',
+                textAlign: TextAlign.center, style: const TextStyle(fontWeight: FontWeight.w800)),
+          );
+        }
+        final call = items[index];
+        return _RouteCallTile(
+          number: index + 1,
+          call: call,
+          done: state.isDone(call.customerNumber),
+          ongoing: state.isOngoing(call.customerNumber),
+          onTap: () => _openCustomer(call),
+        );
+      },
     );
   }
 }
@@ -199,28 +180,6 @@ class _RouteCallTile extends StatelessWidget {
                 ),
             ],
           ),
-        ),
-      ),
-    );
-  }
-}
-
-class _Message extends StatelessWidget {
-  const _Message({required this.text, this.action});
-  final String text;
-  final Widget? action;
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(text, textAlign: TextAlign.center),
-            if (action != null) ...[const SizedBox(height: 8), action!],
-          ],
         ),
       ),
     );

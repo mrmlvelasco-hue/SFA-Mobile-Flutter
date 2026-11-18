@@ -49,6 +49,21 @@ Future<ApiEnvelope> postEnvelope(ApiClient client, String path, Map<String, dyna
   }
 }
 
+/// GETs [path] and wraps the result as an [ApiEnvelope]. For endpoints that return a bare JSON
+/// value instead of the usual envelope (e.g. actual-coob-dashboard returns `[{...}]`), the value
+/// ends up in `data` and the HTTP status in `code`.
+Future<ApiEnvelope> getEnvelope(ApiClient client, String path, {Map<String, dynamic>? query}) async {
+  try {
+    final response = await client.dio.get(path, queryParameters: query);
+    final body = response.data;
+    if (body is Map<String, dynamic> && body.containsKey('message')) return ApiEnvelope.fromResponse(response);
+    final code = response.statusCode ?? 0;
+    return ApiEnvelope(code: code, message: code == 200 ? 'Success' : 'HTTP $code', data: body);
+  } on DioException catch (e) {
+    return networkErrorEnvelope(e);
+  }
+}
+
 /// With validateStatus accepting every HTTP response, a DioException should only mean a
 /// transport failure -- but if Dio still attached a response with a message (e.g. a body that
 /// failed to parse), prefer that message over Dio's own wording.

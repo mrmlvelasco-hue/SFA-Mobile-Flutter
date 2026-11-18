@@ -5,27 +5,53 @@ Flutter rewrite of the SFA sales-force-automation mobile app. The previous mobil
 backend contract, not a direct code port. It talks to the Python/FastAPI backend in the
 `SFA-API` repo's `/api/v1` routes.
 
-## Status (2026-11-18) -- Milestone 2
+## Status (2026-11-18) -- Milestone 3
 
-- **Milestone 1** (done): project skeleton, theming, API client, login/logout, app shell (drawer)
-  with every original section listed.
-- **Milestone 2** (done): **Route Call Schedule** -- the first screen after login. Lists today's
-  customers to visit (from `POST /api/v1/download-datav2`), with the Scheduled/Unscheduled filter,
-  outlet-name search, numbering in route order, pull-to-refresh, and the green **Done** state for
-  customers that already have a matching order (from `download-datav2/order-details`). The session
-  is now saved, so reopening the app keeps you signed in.
+After login the app works the way the RN app does:
 
-To see data on this screen locally, run `python manage.py seed` in `SFA-API` **on the day you test**
--- it creates today's demo route calls for `jdelacruz` (5 customers; `DEMO0002` shows as Done).
+1. **Login** -> **Downloading data**: the app downloads the master data -- the same 16
+   `download-datav2` calls, in the same order and with the same payloads, as the RN app's
+   `DownloadData.js` (route calls, materials, promo discounts, empties, order details, sales
+   returns, material inventory, collections, outlets, receivables, rebates, pickup discounts,
+   partners, pricing, sales volume, customer promos). The screen names each step and its percent;
+   on failure it names the failing step, with Retry and Log out.
+2. The download is **saved on the phone**, so for the rest of the day the app opens and runs
+   **without internet**. Every screen reads the saved data, not the server.
+3. **Pricing** is cached separately and re-downloaded only when the server flags a price update
+   (`constants.price_update`), as in the RN app.
+4. **Dashboard** is the first screen: "As of <yesterday>" and five gauges (Revenue NSR, Volume Raw,
+   Volume 8oE, Volume Physical, Revenue GSR) from `actual-coob-dashboard`. The last figures are
+   saved, so offline it shows those, marked with when they were fetched.
+5. **New day**: like the RN app, a session belongs to the day you logged in. Opening (or returning
+   to) the app on a later day ends it with "You haven't logged out from yesterday's session.
+   Please re-login." and the old download is deleted; logging in downloads fresh data.
 
-Not ported yet from the RN Route Call Schedule:
-- the map of customer locations behind the list (needs a maps package + API key; deferred with GPS)
-- the "You are offline" banner (needs offline storage)
-- the orange "Call Ongoing" state (comes with the start-call flow)
-- tapping a customer opens a placeholder -- **Customer Master Data** is the next screen to port
+Milestones so far:
+- **1**: skeleton, theming, API client, login/logout, drawer.
+- **2**: Route Call Schedule -- today's customers, Scheduled/Unscheduled, search, Done state.
+  It now reads the saved download (no pull-to-refresh: data is downloaded once after login).
+- **3** (this one): master data download + offline storage, Dashboard, day rule.
+
+Differences from the RN app, on purpose:
+- The whole download fails on the first failing call; the RN app ignored some failures (it only
+  checked 9 of the 16 responses) and could save incomplete data.
+- The cached pricing belongs to the user who downloaded it; the RN app reused one device-wide
+  pricing cache for whoever logged in next.
+- The dashboard keeps its last figures for offline use; the RN dashboard is blank offline.
+
+To see data locally, run `python manage.py seed` in `SFA-API` **on the day you test** (it creates
+today's demo route calls for `jdelacruz`). `python tools/smoke_mobile_download.py --dev` in
+`SFA-API` runs the same download sequence against your backend and reports each step -- use it to
+check the backend side when the app's download fails.
+
+Not ported yet:
+- **Begin Route** (drawer button -> "Are you sure you want to begin route?" -> GPS fix -> start
+  of the route day) -- next milestone; needs GPS and a queue for actions done offline
+- the map behind the route list, the offline banner, the "Call Ongoing" state
+- the password-expiry reminder after the download; the DC-inventory/floor-stock prefetch
+- tapping a customer opens a placeholder (Customer Master Data is a later milestone)
 
 Deliberately deferred (later passes):
-- Offline-first local storage (the RN app used SQLite + AsyncStorage)
 - GPS / geofencing (login's `lat`/`lng` are currently hardcoded to `0.0`)
 - Maps, signature capture, native device checks (root/jailbreak detection, etc.)
 
@@ -36,8 +62,8 @@ Deliberately deferred (later passes):
   `/reset-forgot-password` -- see the RN app's `src/services/authApi.js` for what the old
   app called). The "Forgot password?" link currently opens a placeholder screen saying so.
   These need to be added to `SFA-API` before the Flutter screens for them are worth building.
-- **Session restore uses the saved login response**: reopening the app restores the user saved at
-  the last login (there's no `/me` endpoint to re-fetch it). If the server rejects the token
+- **Session restore uses the saved login response**: reopening the app the same day restores the
+  user saved at login (there's no `/me` endpoint to re-fetch it). If the server rejects the token
   ("Unauthenticated."), the app returns to the login screen with "Your session has expired".
 - **`ip`/device identity fields**: `device_name` is just the OS name/version; `ip` is a
   stub `"0.0.0.0"`. The backend only logs these to the audit trail today, so this is safe,
@@ -91,11 +117,15 @@ Without `--dart-define` overrides it defaults to `http://localhost:8000` / `1.0.
 
 Current tests (`test/`) -- none need the backend running; they use fakes from `test/helpers.dart`:
 - `login_screen_test.dart` -- validation errors on empty submit; both fields render
-- `auth_state_test.dart` -- login success/failure, session save/restore, logout
+- `auth_state_test.dart` -- login success/failure, session save/restore, the new-day rule, logout
+- `master_data_state_test.dart` -- the 16 calls in the RN order with the RN payloads, saving and
+  restoring today's download offline, the pricing-cache rule, failures, expired token
+- `download_screen_test.dart` -- progress text, failure message, Retry
+- `dashboard_state_test.dart` -- query parameters, gauge figures/formatting, offline fallback
+- `formatting_test.dart` -- the number/date rules ported from the RN utils
 - `route_call_state_test.dart` -- scheduled/unscheduled rules, sorting, search, one row per
-  customer, the Done rule, backend errors, expired token
-- `route_call_schedule_screen_test.dart` -- the screen loads, lists, filters, searches, shows
-  Done, and opens a customer
+  customer, the Done rule
+- `route_call_schedule_screen_test.dart` -- lists, filters, searches, shows Done, opens a customer
 
 There is no integration/E2E test yet that actually talks to a running `SFA-API` instance.
 Once more screens exist, consider adding one with `integration_test` against a local
@@ -105,15 +135,20 @@ good model for the seed data).
 ## Layout
 
     lib/
-      core/            api_config.dart (base URL/app version), api_client.dart (Dio + response envelope),
+      core/            offline_store.dart (saved downloads, one JSON file each), formatting.dart (RN number/date
+                       rules), safe_notifier.dart,
+                       api_config.dart (base URL/app version), api_client.dart (Dio + response envelope),
                        token_storage.dart (secure token/device-id persistence),
                        device_info_service.dart (device id/name, lat/lng/ip stubs),
                        app_colors.dart, app_theme.dart (ported from the RN app's colors.js)
       features/
         auth/          auth_repository.dart (calls /api/v1/login, /logout),
                        auth_state.dart (ChangeNotifier session state), login_screen.dart, sfa_user.dart
-        route_calls/   route_call.dart (model), route_call_repository.dart (download-datav2 calls),
-                       route_call_state.dart (filter/search/done logic), route_call_schedule_screen.dart
+        master_data/   master_data_state.dart (the 16-call download, saving/restoring, pricing cache),
+                       master_data_repository.dart, download_screen.dart
+        dashboard/     dashboard_state.dart, dashboard_screen.dart, gauge_card.dart
+        route_calls/   route_call.dart (model), route_call_state.dart (filter/search/done logic, from the
+                       saved download), route_call_schedule_screen.dart
         home/          drawer_shell.dart (post-login app shell + drawer), menu_items.dart (ported menu list)
         placeholder/   coming_soon_screen.dart (stand-in for unbuilt sections)
       main.dart        MaterialApp + AuthGate (Login vs DrawerShell by auth status)
@@ -122,14 +157,16 @@ good model for the seed data).
 ## Next milestones (planned, not started)
 
 In the order the original app's drawer lists them, once a milestone is picked up:
-1. ~~Route Call Schedule~~ (done, milestone 2)
-2. Customer Master Data (opened by tapping a customer) + start call
-3. Order Management (add order, misc discounts, digital signature, order summary) --
+1. ~~Route Call Schedule~~ (done, milestone 2); ~~master data download, offline storage,
+   Dashboard~~ (done, milestone 3)
+2. Begin Route / End Route (GPS, offline queue for actions done without internet)
+3. Customer Master Data (opened by tapping a customer) + start call
+4. Order Management (add order, misc discounts, digital signature, order summary) --
    the largest module
-4. Order Status
-5. Payment Collection
-6. Outlet Inventory / DC Inventory / Floor Stock Inventory
-7. Sales Return, Subsidiary Ledger, Sales Inquiries, Route Productivity,
+5. Order Status
+6. Payment Collection
+7. Outlet Inventory / DC Inventory / Floor Stock Inventory
+8. Sales Return, Subsidiary Ledger, Sales Inquiries, Route Productivity,
    Non-Sales Activities, Empties Pullout, Customer Master Data, Feedback
 
 Each milestone should land as its own PR/commit with its own tests, same cadence as the
