@@ -39,10 +39,16 @@ Differences from the RN app, on purpose:
   pricing cache for whoever logged in next.
 - The dashboard keeps its last figures for offline use; the RN dashboard is blank offline.
 
-To see data locally, run `python manage.py seed` in `SFA-API` **on the day you test** (it creates
-today's demo route calls for `jdelacruz`). `python tools/smoke_mobile_download.py --dev` in
-`SFA-API` runs the same download sequence against your backend and reports each step -- use it to
-check the backend side when the app's download fails.
+To see real-looking data locally, in `SFA-API` load the master-data workbook (sample route
+`213008`) and set up `jdelacruz` -- **on each day you test**, since the app downloads only today's
+route calls:
+
+    python manage.py upload-masterdata data/SFA_Masterdata_sample.xlsx --call-date today
+    python manage.py seed
+
+Log in as `jdelacruz`: 58 customers today (16 scheduled, 42 unscheduled), ~13,700 prices.
+`python tools/smoke_mobile_download.py --dev` in `SFA-API` runs the same download sequence against
+your backend and reports each step -- use it to check the backend side when the app's download fails.
 
 Not ported yet:
 - **Begin Route** (drawer button -> "Are you sure you want to begin route?" -> GPS fix -> start
