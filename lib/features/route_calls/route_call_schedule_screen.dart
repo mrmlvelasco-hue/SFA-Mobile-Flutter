@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import '../../core/app_colors.dart';
-import '../placeholder/coming_soon_screen.dart';
+import '../../core/outbox.dart';
+import '../calls/call_navigation.dart';
+import '../calls/call_state.dart';
+import '../calls/customer_screen.dart';
 import 'route_call.dart';
 import 'route_call_state.dart';
 
@@ -11,10 +14,11 @@ import 'route_call_state.dart';
 /// Reads the downloaded master data, so it works offline (no refresh: the data is downloaded once
 /// after login, as in the RN app).
 ///
+/// Tapping a customer opens Customer Master Data (Start Call and the order flow). Calls started or
+/// ended on this phone show as ongoing/done; requests saved offline show in a banner on top.
+///
 /// Not ported yet: the map of customer locations behind the list (needs a maps package + API
-/// key, deferred with GPS), the "You are offline" banner, and the ongoing-call state (comes with
-/// the start-call flow). Tapping a customer opens Customer Master Data, which is the next screen
-/// to port.
+/// key, deferred with GPS) and the "You are offline" banner.
 class RouteCallScheduleScreen extends StatefulWidget {
   const RouteCallScheduleScreen({super.key});
 
@@ -38,20 +42,20 @@ class _RouteCallScheduleScreenState extends State<RouteCallScheduleScreen> {
   }
 
   void _openCustomer(RouteCall call) {
-    Navigator.of(context).push(MaterialPageRoute(
-      builder: (_) => ComingSoonScreen(
-        title: 'Customer Master Data',
-        note: '${call.outletName} (${call.customerNumber})\n\n'
-            'This is the next screen to be ported from the React Native app.',
-      ),
-    ));
+    pushCallScreen(context, CustomerScreen(call: call), name: customerRouteName);
   }
 
   @override
   Widget build(BuildContext context) {
     final state = context.watch<RouteCallState>();
+    final calls = context.watch<CallState>();
+    state.syncLocalCalls(
+      ongoing: calls.calls.values.where((c) => c.status == CallStatus.ongoing).map((c) => c.customerNumber),
+      done: calls.calls.values.where((c) => c.status == CallStatus.completed).map((c) => c.customerNumber),
+    );
     return Column(
       children: [
+        const _OutboxBanner(),
         Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
           child: Row(
@@ -181,6 +185,46 @@ class _RouteCallTile extends StatelessWidget {
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+/// Requests saved offline (orders, outlet inventory, end calls): how many are waiting, a Send now
+/// button, and any the server rejected.
+class _OutboxBanner extends StatelessWidget {
+  const _OutboxBanner();
+
+  @override
+  Widget build(BuildContext context) {
+    final outbox = context.watch<Outbox>();
+    final failed = outbox.items.where((i) => i.failed).toList();
+    if (outbox.pendingCount == 0 && failed.isEmpty) return const SizedBox.shrink();
+    return Container(
+      width: double.infinity,
+      color: AppColors.orange.withAlpha(80),
+      padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          if (outbox.pendingCount > 0)
+            Row(
+              children: [
+                Expanded(child: Text('${outbox.pendingCount} saved offline, waiting to be sent')),
+                TextButton(key: const Key('outboxSend'), onPressed: outbox.flush, child: const Text('Send now')),
+              ],
+            ),
+          for (final item in failed)
+            Row(
+              children: [
+                Expanded(
+                  child: Text('${item.kind} not accepted: ${item.lastError ?? ''}',
+                      style: const TextStyle(color: AppColors.red2, fontSize: 12)),
+                ),
+                TextButton(onPressed: () => outbox.discard(item.id), child: const Text('Dismiss')),
+              ],
+            ),
+        ],
       ),
     );
   }

@@ -6,6 +6,7 @@ import '../../core/formatting.dart';
 import '../../core/offline_store.dart';
 import '../../core/safe_notifier.dart';
 import '../auth/auth_state.dart';
+import '../calls/sku_catalog.dart';
 import 'master_data_repository.dart';
 
 enum MasterDataStatus { checking, downloading, ready, failed }
@@ -55,6 +56,13 @@ class MasterDataState extends ChangeNotifier with SafeNotifier {
   Map<String, dynamic> data = const {};
   DateTime? downloadedAt;
 
+  /// Real-time stock per sales office ({'2130': [items]}) -- fetched after the download, as the RN
+  /// dashboard does ('Dc-inventory-realtime'); used by Add Order. Empty when it couldn't be fetched.
+  Map<String, dynamic> dcInventory = const {};
+
+  /// Set when the last stock fetch failed (shown on Add Order, which can retry).
+  String? dcInventoryError;
+
   bool get isReady => status == MasterDataStatus.ready;
 
   /// Uses today's saved download if there is one for this user, otherwise downloads.
@@ -73,6 +81,11 @@ class MasterDataState extends ChangeNotifier with SafeNotifier {
       restored['pricing'] = (await _ownPricing(user.employeeId))?['data'] ?? const [];
       data = restored;
       downloadedAt = DateTime.tryParse((saved['downloaded_at'] ?? '').toString());
+      final stock = await _store.read(OfflineDocs.dcInventory);
+      dcInventory = stock != null && stock['employee_id'] == user.employeeId && stock['day'] == dayKey(_clock()) &&
+              stock['offices'] is Map
+          ? Map<String, dynamic>.from(stock['offices'] as Map)
+          : const {};
       status = MasterDataStatus.ready;
       notifyListeners();
       return;
@@ -101,6 +114,13 @@ class MasterDataState extends ChangeNotifier with SafeNotifier {
       });
       data = combined;
       downloadedAt = now;
+      step = 'DC Inventory';
+      notifyListeners();
+      try {
+        await refreshDcInventory(); // not one of the 16 steps: a failure here doesn't fail the download
+      } catch (e) {
+        dcInventoryError = '$e';
+      }
       progress = 1;
       status = MasterDataStatus.ready;
       notifyListeners();
@@ -120,6 +140,40 @@ class MasterDataState extends ChangeNotifier with SafeNotifier {
       status = MasterDataStatus.failed;
       notifyListeners();
     }
+  }
+
+  /// GET materials-inventory-sap for every sales office in constants.sales_offices, grouped by
+  /// office and saved for offline ordering. Failures are kept in [dcInventoryError], not thrown.
+  Future<void> refreshDcInventory() async {
+    final user = _auth.user;
+    if (user == null) return;
+    final constants = data['constants'];
+    final offices = (constants is Map ? constants['sales_offices'] : null);
+    final list = offices is List
+        ? offices.whereType<Map>().map((o) => (o['sap_officeId'] ?? '').toString()).where((o) => o.isNotEmpty).toList()
+        : <String>[];
+    if (list.isEmpty) {
+      dcInventoryError = 'No sales office to check stock for.';
+      notifyListeners();
+      return;
+    }
+    final result = await _repository.get('/api/v1/materials-inventory-sap', {'sales_office': list.join(',')});
+    // SAP's {code, status, message, data: [[...]]} unwraps like the usual envelope: `data` is the list.
+    final stockLists = result.data is Map ? (result.data as Map)['data'] : result.data;
+    if (!result.isSuccess || result.status == 'Error' || stockLists is! List) {
+      dcInventoryError = result.isSuccess && result.status != 'Error' ? 'Unexpected stock response.' : result.message;
+      notifyListeners();
+      return;
+    }
+    final grouped = groupStockBySalesOffice(stockLists);
+    dcInventory = grouped;
+    dcInventoryError = null;
+    await _store.write(OfflineDocs.dcInventory, {
+      'employee_id': user.employeeId,
+      'day': dayKey(_clock()),
+      'offices': grouped,
+    });
+    notifyListeners();
   }
 
   var _done = 0;

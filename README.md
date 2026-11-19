@@ -5,61 +5,85 @@ Flutter rewrite of the SFA sales-force-automation mobile app. The previous mobil
 backend contract, not a direct code port. It talks to the Python/FastAPI backend in the
 `SFA-API` repo's `/api/v1` routes.
 
-## Status (2026-11-18) -- Milestone 3
+## Status (2026-11-19) -- Milestone 4: the call and the order
 
-After login the app works the way the RN app does:
+The main route process now works end to end, like the RN app:
 
-1. **Login** -> **Downloading data**: the app downloads the master data -- the same 16
-   `download-datav2` calls, in the same order and with the same payloads, as the RN app's
-   `DownloadData.js` (route calls, materials, promo discounts, empties, order details, sales
-   returns, material inventory, collections, outlets, receivables, rebates, pickup discounts,
-   partners, pricing, sales volume, customer promos). The screen names each step and its percent;
-   on failure it names the failing step, with Retry and Log out.
-2. The download is **saved on the phone**, so for the rest of the day the app opens and runs
-   **without internet**. Every screen reads the saved data, not the server.
-3. **Pricing** is cached separately and re-downloaded only when the server flags a price update
-   (`constants.price_update`), as in the RN app.
-4. **Dashboard** is the first screen: "As of <yesterday>" and five gauges (Revenue NSR, Volume Raw,
-   Volume 8oE, Volume Physical, Revenue GSR) from `actual-coob-dashboard`. The last figures are
-   saved, so offline it shows those, marked with when they were fetched.
-5. **New day**: like the RN app, a session belongs to the day you logged in. Opening (or returning
-   to) the app on a later day ends it with "You haven't logged out from yesterday's session.
-   Please re-login." and the old download is deleted; logging in downloads fresh data.
+**Route list -> customer -> Start Call -> Outlet Inventory -> Order Management -> Add Order ->
+Misc Discount -> Order Summary -> Digital Signature -> order sent -> End Call.**
 
-Milestones so far:
+1. **Customer Master Data** (tap a customer): outlet, owner, contact, address, credit term /
+   limit / balance, payment type, price zone, channel, sub-channel, distribution type, account
+   status. **Start Call** is refused while another customer's call is ongoing. During the call:
+   the call menu, **Cancel Call** (only before the outlet inventory is saved or an order is
+   signed) and **End Call**.
+2. **Outlet Inventory**: Fulls and Empty tabs, starting from the outlet's last count on the server
+   (download's `outlets`). Add SKUs, change or remove counts, Save. Only what changed is sent
+   (`outlet-inventory/sku/addNew`, with `product_data` / `product_deleted` as the RN app builds
+   them). Order Management needs today's outlet inventory first, except for `NREQ` accounts.
+3. **Order Management**: ship-to (the customer's Ship-To-Party partners), distribution center
+   (defaults to the customer's delivering plant), Delivery / Pick Up, delivery date (today + 2,
+   or + 3 when that is a Sunday or Monday; earlier dates or Sunday ask to confirm). Add Order is
+   blocked when there is no OCL and no credit balance.
+4. **Add Order**: the customer's price list (`pricing` wsp + discount, the material's unit price as
+   fallback, empties excluded), the RN search rule (contains the text and starts with the same
+   letter), the DC's real-time stock (`materials-inventory-sap`, fetched after the download and
+   saved for offline use), and the out-of-stock warning.
+5. **Misc Discount**: the pick-up discount (Pick Up orders) and a rebate claim (more than 0 and not
+   over the rebate balance). Skip clears both.
+6. **Order Summary**: gross, SKU discounts, net gross, pick-up, rebate and the estimated total,
+   and the RN credit check before submitting (COD always passes; with OCL: a warning; without OCL
+   and over the balance: blocked).
+7. **Digital Signature**: the customer signs on screen (drawn in the app, sent as a PNG data URL),
+   remarks, Submit -> `order/submit` with every field the RN app sends.
+8. **End Call** sends `route/end-call` after an order. The route list shows the call as
+   **Call Ongoing** / **Done**.
+
+**Offline**: the call, the outlet inventory count and the order being taken are saved on the
+phone as you go (they survive closing the app). With no connection, the outlet inventory, the
+order and the end of call are kept in an **outbox** and sent, in order, when the connection is
+back (on returning to the app, or with **Send now** on the banner above the route list). If the
+server rejects an order sent directly, the call shows "Order not accepted" with the server's
+message and the order can be fixed and sent again.
+
+Earlier milestones:
 - **1**: skeleton, theming, API client, login/logout, drawer.
 - **2**: Route Call Schedule -- today's customers, Scheduled/Unscheduled, search, Done state.
-  It now reads the saved download (no pull-to-refresh: data is downloaded once after login).
-- **3** (this one): master data download + offline storage, Dashboard, day rule.
+- **3**: master data download (the RN app's 16 calls) + offline storage, Dashboard, the day rule
+  (a session belongs to the day you logged in).
+
+Not in this milestone (the RN app has them; they come later):
+- **Promos**: a customer's promos are listed on Misc Discount but can't be selected yet (the
+  sample route has none). `total_promo_discount` is sent as `0`.
+- **Empties Pullout** step of the order (sent as `empties_pullout: "[]"`), Sales Return,
+  Subsidiary Ledger, Payment Collection -- menu items open a placeholder.
+- **Ending a call without an order**: the RN app asks for a no-order reason (Feedback screen) and
+  sends feedback; here the call is only ended on the phone (nothing is sent).
+- **GPS / geofence**: start/end coordinates are `0`, `is_inside_geo` / `deviation_in_meters` are
+  `null`. Begin Route / End Route.
+- Re-opening a submitted order to edit it (the RN "view order" mode).
 
 Differences from the RN app, on purpose:
-- The whole download fails on the first failing call; the RN app ignored some failures (it only
-  checked 9 of the 16 responses) and could save incomplete data.
-- The cached pricing belongs to the user who downloaded it; the RN app reused one device-wide
-  pricing cache for whoever logged in next.
-- The dashboard keeps its last figures for offline use; the RN dashboard is blank offline.
+- The whole download fails on the first failing call (the RN app ignored some failures).
+- The cached pricing belongs to the user who downloaded it.
+- The dashboard keeps its last figures for offline use.
+- When there is no OCL and no credit balance, the summary says so (the RN app silently did
+  nothing on Submit in that case).
 
-To see real-looking data locally, in `SFA-API` load the master-data workbook (sample route
-`213008`) and set up `jdelacruz` -- **on each day you test**, since the app downloads only today's
-route calls:
+### Try it with the sample route
+
+In `SFA-API`, **on each day you test** (the app downloads only today's route calls):
 
     python manage.py upload-masterdata data/SFA_Masterdata_sample.xlsx --call-date today
     python manage.py seed
+    python manage.py reset-devices jdelacruz
 
-Log in as `jdelacruz`: 58 customers today (16 scheduled, 42 unscheduled), ~13,700 prices.
-`python tools/smoke_mobile_download.py --dev` in `SFA-API` runs the same download sequence against
-your backend and reports each step -- use it to check the backend side when the app's download fails.
+`seed` also gives every customer on route 213008 a ship-to partner and puts 500 cases of every
+SKU in DC 2130, where the workbook has none. Log in as `jdelacruz` (58 customers today).
 
-Not ported yet:
-- **Begin Route** (drawer button -> "Are you sure you want to begin route?" -> GPS fix -> start
-  of the route day) -- next milestone; needs GPS and a queue for actions done offline
-- the map behind the route list, the offline banner, the "Call Ongoing" state
-- the password-expiry reminder after the download; the DC-inventory/floor-stock prefetch
-- tapping a customer opens a placeholder (Customer Master Data is a later milestone)
+To check the backend side of the order flow without the phone:
 
-Deliberately deferred (later passes):
-- GPS / geofencing (login's `lat`/`lng` are currently hardcoded to `0.0`)
-- Maps, signature capture, native device checks (root/jailbreak detection, etc.)
+    python tools/smoke_call_order.py --dev          # outlet inventory, order + signature, end call
 
 ## Known gaps
 
@@ -131,7 +155,15 @@ Current tests (`test/`) -- none need the backend running; they use fakes from `t
 - `formatting_test.dart` -- the number/date rules ported from the RN utils
 - `route_call_state_test.dart` -- scheduled/unscheduled rules, sorting, search, one row per
   customer, the Done rule
-- `route_call_schedule_screen_test.dart` -- lists, filters, searches, shows Done, opens a customer
+- `route_call_schedule_screen_test.dart` -- lists, filters, searches, shows Done, opens a customer,
+  ongoing/done from calls made on the phone, the offline banner
+- `order_draft_test.dart` -- order totals, delivery-date rules, the `order/submit` payload field by
+  field, credit check, ship-to choices, SKU catalog/stock/search rules
+- `call_state_test.dart` -- one call at a time, cancel rule, outlet inventory changes and the
+  `addNew` body, submit + end call online, offline queueing and resend order, rejected orders,
+  saved calls surviving a restart
+- `call_flow_screens_test.dart` -- Start Call, the outlet-inventory-first rule, and the screens
+  from Order Management through Add Order, Misc Discount and Summary to the signature
 
 There is no integration/E2E test yet that actually talks to a running `SFA-API` instance.
 Once more screens exist, consider adding one with `integration_test` against a local
@@ -141,7 +173,8 @@ good model for the seed data).
 ## Layout
 
     lib/
-      core/            offline_store.dart (saved downloads, one JSON file each), formatting.dart (RN number/date
+      core/            outbox.dart (requests waiting for a connection),
+                       offline_store.dart (saved downloads, one JSON file each), formatting.dart (RN number/date
                        rules), safe_notifier.dart,
                        api_config.dart (base URL/app version), api_client.dart (Dio + response envelope),
                        token_storage.dart (secure token/device-id persistence),
@@ -155,6 +188,12 @@ good model for the seed data).
         dashboard/     dashboard_state.dart, dashboard_screen.dart, gauge_card.dart
         route_calls/   route_call.dart (model), route_call_state.dart (filter/search/done logic, from the
                        saved download), route_call_schedule_screen.dart
+        calls/         call_state.dart (today's calls, saved on the phone; sends via the outbox),
+                       order_draft.dart (order lines, totals, the order/submit payload),
+                       sku_catalog.dart (price list + DC stock), call_rules.dart (credit, ship-to,
+                       rebates...), customer_screen.dart, outlet_inventory_screen.dart,
+                       order_management_screen.dart, add_order_screen.dart, misc_discount_screen.dart,
+                       order_summary_screen.dart, signature_screen.dart + signature_pad.dart
         home/          drawer_shell.dart (post-login app shell + drawer), menu_items.dart (ported menu list)
         placeholder/   coming_soon_screen.dart (stand-in for unbuilt sections)
       main.dart        MaterialApp + AuthGate (Login vs DrawerShell by auth status)
@@ -162,18 +201,13 @@ good model for the seed data).
 
 ## Next milestones (planned, not started)
 
-In the order the original app's drawer lists them, once a milestone is picked up:
-1. ~~Route Call Schedule~~ (done, milestone 2); ~~master data download, offline storage,
-   Dashboard~~ (done, milestone 3)
-2. Begin Route / End Route (GPS, offline queue for actions done without internet)
-3. Customer Master Data (opened by tapping a customer) + start call
-4. Order Management (add order, misc discounts, digital signature, order summary) --
-   the largest module
-5. Order Status
-6. Payment Collection
-7. Outlet Inventory / DC Inventory / Floor Stock Inventory
-8. Sales Return, Subsidiary Ledger, Sales Inquiries, Route Productivity,
-   Non-Sales Activities, Empties Pullout, Customer Master Data, Feedback
+1. ~~Route Call Schedule~~ (2); ~~master data download, offline storage, Dashboard~~ (3);
+   ~~Customer Master Data, start/end call, Outlet Inventory, Order Management with signature~~ (4)
+2. Feedback (no-order end call), Empties Pullout step, promos in Misc Discount
+3. Begin Route / End Route + GPS / geofence
+4. Order Status, Payment Collection
+5. Sales Return, Subsidiary Ledger, DC Inventory / Floor Stock, Sales Inquiries, Route
+   Productivity, Non-Sales Activities
 
 Each milestone should land as its own PR/commit with its own tests, same cadence as the
 backend work.

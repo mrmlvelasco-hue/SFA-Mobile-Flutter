@@ -182,4 +182,33 @@ void main() {
     expect(auth.status, AuthStatus.signedOut);
     expect(auth.errorMessage, contains('session has expired'));
   });
+
+  group('DC stock (materials-inventory-sap)', () {
+    test('fetched after the download for every sales office, grouped and saved for offline use', () async {
+      final store = InMemoryOfflineStore();
+      final repo = FakeMasterDataRepository();
+      final state = _state(repo, store);
+      await state.download();
+
+      expect(repo.gets, ['materials-inventory-sap']);
+      expect(repo.getQueries.single, {'sales_office': '9101'});
+      expect(state.dcInventoryError, isNull);
+      expect((state.dcInventory['9101'] as List), hasLength(2));
+
+      final reopened = _state(FakeMasterDataRepository(), store);
+      await reopened.start();
+      expect((reopened.dcInventory['9101'] as List), hasLength(2));
+    });
+
+    test('a failure does not fail the download', () async {
+      final repo = FakeMasterDataRepository()
+        ..stockResponse = ApiEnvelope(code: 0, message: 'No internet connection');
+      final state = _state(repo, InMemoryOfflineStore());
+      await state.download();
+
+      expect(state.isReady, isTrue);
+      expect(state.dcInventory, isEmpty);
+      expect(state.dcInventoryError, 'No internet connection');
+    });
+  });
 }

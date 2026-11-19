@@ -29,6 +29,16 @@ class OfflineDocs {
 
   /// The last dashboard figures, so the dashboard still shows something offline.
   static const dashboard = 'dashboard';
+
+  /// Real-time stock per sales office (materials-inventory-sap), saved after the download -- the
+  /// RN app's 'Dc-inventory-realtime'. Valid for one user, one day.
+  static const dcInventory = 'dc_inventory';
+
+  /// Today's calls (started/ended, outlet inventory, the order being taken). One user, one day.
+  static const calls = 'calls';
+
+  /// Requests waiting for a connection (orders, outlet inventory, end call). Kept across logins.
+  static const outbox = 'outbox';
 }
 
 class FileOfflineStore implements OfflineStore {

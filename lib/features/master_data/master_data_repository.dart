@@ -7,4 +7,8 @@ class MasterDataRepository {
   final ApiClient _client;
 
   Future<ApiEnvelope> post(String path, Map<String, dynamic> body) => postEnvelope(_client, path, body);
+
+  /// For GETs whose answer isn't the usual envelope (materials-inventory-sap returns SAP's
+  /// {code, status, data} -- which getEnvelope keeps whole in `data`).
+  Future<ApiEnvelope> get(String path, Map<String, dynamic> query) => getEnvelope(_client, path, query: query);
 }

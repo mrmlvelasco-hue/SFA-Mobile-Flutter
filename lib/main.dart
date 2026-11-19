@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:provider/provider.dart';
 
 import 'core/app_theme.dart';
+import 'core/outbox.dart';
 import 'features/auth/auth_state.dart';
 import 'features/auth/login_screen.dart';
+import 'features/calls/call_state.dart';
 import 'features/dashboard/dashboard_state.dart';
 import 'features/home/drawer_shell.dart';
 import 'features/master_data/download_screen.dart';
@@ -25,29 +27,42 @@ class SfaApp extends StatefulWidget {
 class _SfaAppState extends State<SfaApp> with WidgetsBindingObserver {
   final AuthState _auth = AuthState()..bootstrap();
 
+  /// Orders / outlet inventory / end calls waiting for a connection. App-wide and kept across
+  /// logins, so nothing taken offline is lost.
+  final Outbox _outbox = Outbox();
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _outbox.load().then((_) => _outbox.flush());
   }
 
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
     _auth.dispose();
+    _outbox.dispose();
     super.dispose();
   }
 
-  /// Back in the foreground: a session from an earlier day ends here (the RN app polls for this).
+  /// Back in the foreground: a session from an earlier day ends here (the RN app polls for this),
+  /// and anything saved offline is sent.
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.resumed) _auth.endSessionIfNewDay();
+    if (state == AppLifecycleState.resumed) {
+      _auth.endSessionIfNewDay();
+      if (_outbox.pendingCount > 0) _outbox.flush();
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    return ChangeNotifierProvider<AuthState>.value(
-      value: _auth,
+    return MultiProvider(
+      providers: [
+        ChangeNotifierProvider<AuthState>.value(value: _auth),
+        ChangeNotifierProvider<Outbox>.value(value: _outbox),
+      ],
       child: MaterialApp(
         title: 'SFA',
         debugShowCheckedModeBanner: false,
@@ -77,8 +92,12 @@ class AuthGate extends StatelessWidget {
         return const Scaffold(body: Center(child: CircularProgressIndicator()));
       case AuthStatus.signedIn:
         // Created per signed-in session, so logging out and in as someone else starts clean.
-        return ChangeNotifierProvider(
-          create: (ctx) => MasterDataState(auth: ctx.read<AuthState>())..start(),
+        return MultiProvider(
+          providers: [
+            ChangeNotifierProvider(create: (ctx) => MasterDataState(auth: ctx.read<AuthState>())..start()),
+            ChangeNotifierProvider(
+                create: (ctx) => CallState(auth: ctx.read<AuthState>(), outbox: ctx.read<Outbox>())..load()),
+          ],
           child: const SignedInHome(),
         );
       case AuthStatus.signedOut:

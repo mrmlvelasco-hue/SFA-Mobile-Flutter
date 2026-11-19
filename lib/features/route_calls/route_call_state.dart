@@ -31,9 +31,8 @@ class RouteCallState extends ChangeNotifier {
   /// Customers whose call is done because an order matches it (see [doneCustomers]).
   final Set<String> _doneFromOrders;
 
-  /// Customers marked done/ongoing during this session. Nothing sets these yet -- they're filled
-  /// in by the start-call / end-call / feedback flows in later milestones (the RN app's
-  /// routeCall.doneCustomers, routeCall.customerFeedback and startAndEndRouteCall slices).
+  /// Customers marked done/ongoing on this phone today (from CallState, see [syncLocalCalls]) --
+  /// the RN app's routeCall.doneCustomers and startAndEndRouteCall slices.
   final Set<String> localDone = {};
   final Set<String> ongoing = {};
 
@@ -57,6 +56,17 @@ class RouteCallState extends ChangeNotifier {
       }
     }
     return done;
+  }
+
+  /// Takes the calls started/ended on this phone today (CallState) into the list's done/ongoing
+  /// marks. Called while building the list, so it doesn't notify.
+  void syncLocalCalls({required Iterable<String> ongoing, required Iterable<String> done}) {
+    this.ongoing
+      ..clear()
+      ..addAll(ongoing);
+    localDone
+      ..clear()
+      ..addAll(done);
   }
 
   bool isDone(String customerNumber) =>

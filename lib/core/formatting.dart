@@ -42,3 +42,24 @@ String jsNumberText(String? value) {
   if (parsed == null) return value.trim().isEmpty ? '0' : 'NaN';
   return parsed == parsed.roundToDouble() ? parsed.toInt().toString() : parsed.toString();
 }
+
+/// The RN app's endRouteDate(): 'yyyy-MM-dd HH:mm:ss' (24-hour), or 'yyyy-MM-dd' without the time.
+/// Used for every call/order timestamp sent to the server.
+String endRouteDate(DateTime date, {bool withTime = true}) =>
+    DateFormat(withTime ? 'yyyy-MM-dd HH:mm:ss' : 'yyyy-MM-dd').format(date);
+
+/// JavaScript parseInt(): the leading integer of a number or numeric text ('90.75' -> 90,
+/// ' 12abc' -> 12), 0 when there is none (where JS would give NaN, which then poisons sums).
+int jsParseInt(dynamic value) {
+  if (value is int) return value;
+  if (value is num) return value.isFinite ? value.truncate() : 0;
+  final match = RegExp(r'^\s*([+-]?\d+)').firstMatch(value?.toString() ?? '');
+  return match == null ? 0 : int.parse(match.group(1)!);
+}
+
+/// JavaScript parseFloat(): the leading number ('12.5kg' -> 12.5), 0 when there is none.
+double jsParseFloat(dynamic value) {
+  if (value is num) return value.isFinite ? value.toDouble() : 0;
+  final match = RegExp(r'^\s*([+-]?(\d+\.?\d*|\.\d+)([eE][+-]?\d+)?)').firstMatch(value?.toString() ?? '');
+  return match == null ? 0 : double.parse(match.group(1)!);
+}

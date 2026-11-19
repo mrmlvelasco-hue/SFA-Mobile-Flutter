@@ -1,6 +1,7 @@
 import 'package:sfa_mobile/core/api_client.dart';
 import 'package:sfa_mobile/core/formatting.dart';
 import 'package:sfa_mobile/core/offline_store.dart';
+import 'package:sfa_mobile/core/outbox.dart';
 import 'package:sfa_mobile/core/token_storage.dart';
 import 'package:sfa_mobile/features/auth/auth_repository.dart';
 import 'package:sfa_mobile/features/auth/auth_state.dart';
@@ -114,6 +115,25 @@ class FakeMasterDataRepository extends MasterDataRepository {
     return ApiEnvelope(code: 200, status: 'Success', message: 'Success', data: _defaultData(name));
   }
 
+  /// GET requests (materials-inventory-sap) and their query, in order.
+  final List<String> gets = [];
+  final List<Map<String, dynamic>> getQueries = [];
+
+  /// The answer to GET materials-inventory-sap (SAP's shape, unwrapped like the app's client does).
+  ApiEnvelope stockResponse = ApiEnvelope(code: 200, status: 'Success', message: 'Result(s) Found', data: [
+    [
+      {'sales_office': '9101', 'sap_number': 'M1', 'sku_desc': 'Cola 8oz', 'net_inventory': '40'},
+      {'sales_office': '9101', 'sap_number': 'M2', 'sku_desc': 'Cola 1L', 'net_inventory': '0'},
+    ]
+  ]);
+
+  @override
+  Future<ApiEnvelope> get(String path, Map<String, dynamic> query) async {
+    gets.add(path.split('/').last);
+    getQueries.add(query);
+    return stockResponse;
+  }
+
   dynamic _defaultData(String name) {
     switch (name) {
       case 'download-datav2':
@@ -158,5 +178,25 @@ class FakeMasterDataRepository extends MasterDataRepository {
       default:
         return [];
     }
+  }
+}
+
+/// An Outbox that answers from [answer] instead of the network and records what was posted.
+/// Set [online] to false to act as if there is no connection.
+class FakeOutbox extends Outbox {
+  FakeOutbox({InMemoryOfflineStore? store}) : super(store: store ?? InMemoryOfflineStore());
+
+  bool online = true;
+  ApiEnvelope Function(String path, Map<String, dynamic> body)? answer;
+  final List<String> posted = [];
+  final List<Map<String, dynamic>> bodies = [];
+
+  @override
+  Future<ApiEnvelope> post(String path, Map<String, dynamic> body) async {
+    if (!online) return ApiEnvelope(code: 0, message: 'No internet connection');
+    posted.add(path);
+    bodies.add(body);
+    return answer?.call(path, body) ??
+        ApiEnvelope(code: 200, status: 'Success', message: 'Success', data: {'request': {'sap_response': ''}});
   }
 }
